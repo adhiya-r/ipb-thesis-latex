@@ -72,9 +72,10 @@ ifeq ($(OS),)
 endif
 
 # -----------------------------------------------------------------------------
-# Deteksi distribusi TeX
+# Deteksi distribusi TeX & Compiler
 # -----------------------------------------------------------------------------
 PDFLATEX_BIN := $(shell which pdflatex 2>/dev/null)
+TECTONIC_BIN := $(shell which tectonic 2>/dev/null)
 BIBER_BIN    := $(shell which biber 2>/dev/null)
 CHKTeX_BIN   := $(shell which chktex 2>/dev/null)
 
@@ -86,17 +87,44 @@ ifeq ($(OS),macos)
         else ifneq (,$(findstring texlive,$(PDFLATEX_BIN)))
             TEX_DIST := mactex
         endif
+    else ifneq ($(TECTONIC_BIN),)
+        TEX_DIST := tectonic
     endif
 endif
 ifeq ($(OS),linux)
     ifneq ($(PDFLATEX_BIN),)
         TEX_DIST := texlive
+    else ifneq ($(TECTONIC_BIN),)
+        TEX_DIST := tectonic
     endif
 endif
 ifeq ($(OS),windows)
     ifneq ($(PDFLATEX_BIN),)
         TEX_DIST := miktex
+    else ifneq ($(TECTONIC_BIN),)
+        TEX_DIST := tectonic
     endif
+endif
+ifeq ($(TEX_DIST),none)
+    ifneq ($(TECTONIC_BIN),)
+        TEX_DIST := tectonic
+    endif
+endif
+
+# -----------------------------------------------------------------------------
+# Pemilihan Compiler (tectonic / pdflatex)
+# -----------------------------------------------------------------------------
+ENGINE ?= auto
+ifeq ($(ENGINE),auto)
+    ifneq ($(TECTONIC_BIN),)
+        COMPILER := tectonic
+    else ifneq ($(PDFLATEX_BIN),)
+        COMPILER := pdflatex
+    else
+        COMPILER := none
+    endif
+else
+    COMPILER := $(ENGINE)
 endif
 
 # -----------------------------------------------------------------------------
@@ -132,12 +160,21 @@ LATEX_TEMP := *.aux *.log *.toc *.lof *.lot *.fls *.out *.bbl *.blg \
               *.bcf *.run.xml *.fdb_latexmk *.synctex.gz *.idx *.ind \
               *.ilg *.lot *.lof *.toc *.nav *.out *.snm *.vrb
 
-.PHONY: all build install doctor clean distclean validate watch help
+.PHONY: all build tectonic pdflatex install doctor clean distclean validate watch help
 
 # =============================================================================
 # Target default
 # =============================================================================
 all: build
+
+# =============================================================================
+# Target spesifik compiler
+# =============================================================================
+tectonic:
+	@$(MAKE) build ENGINE=tectonic
+
+pdflatex:
+	@$(MAKE) build ENGINE=pdflatex
 
 # =============================================================================
 # Pesan bantuan
@@ -148,7 +185,9 @@ help:
 	@printf "  ${B}============================${NC}\n"
 	@printf "\n"
 	@printf "  ${G}make${NC}             Bangun PDF (sama dengan 'make build')\n"
-	@printf "  ${G}make build${NC}       Bangun PDF ke direktori dist/\n"
+	@printf "  ${G}make build${NC}       Bangun PDF (auto-detect tectonic / pdflatex)\n"
+	@printf "  ${G}make tectonic${NC}    Bangun PDF khusus menggunakan Tectonic\n"
+	@printf "  ${G}make pdflatex${NC}    Bangun PDF khusus menggunakan pdfLaTeX\n"
 	@printf "  ${G}make install${NC}     Install paket LaTeX (deteksi OS otomatis)\n"
 	@printf "  ${G}make doctor${NC}      Cek apakah semua tool LaTeX tersedia\n"
 	@printf "  ${G}make clean${NC}       Hapus file sementara + direktori build/\n"
@@ -162,6 +201,7 @@ help:
 	@printf "  ${Y}Penulis${NC}: $(NAMA)\n"
 	@printf "  ${Y}OS${NC}: $(OS)\n"
 	@printf "  ${Y}TeX${NC}: $(TEX_DIST)\n"
+	@printf "  ${Y}Compiler${NC}: $(COMPILER)\n"
 	@printf "\n"
 
 # =============================================================================
@@ -171,9 +211,10 @@ doctor:
 	@printf "\n  ${B}:: Diagnostik Tool LaTeX${NC}\n\n"
 	@printf "  OS           : ${C}$(OS)${NC}\n"
 	@printf "  Package mgr  : ${C}$(PKG_MGR)${NC}\n"
-	@printf "  TeX dist     : ${C}$(TEX_DIST)${NC}\n\n"
-	@printf "  Tool yang dibutuhkan:\n"
-	@for tool in pdflatex latexmk biber chktex bibtex; do \
+	@printf "  TeX dist     : ${C}$(TEX_DIST)${NC}\n"
+	@printf "  Compiler     : ${C}$(COMPILER)${NC}\n\n"
+	@printf "  Tool yang didukung:\n"
+	@for tool in tectonic pdflatex latexmk biber chktex bibtex; do \
 	    if command -v $$tool >/dev/null 2>&1; then \
 	        v=$$($$tool --version 2>&1 | head -1); \
 	        printf "    ${G}OK${NC}    %-10s %s\n" "$$tool" "$$v"; \
@@ -182,10 +223,10 @@ doctor:
 	    fi; \
 	done
 	@printf "\n"
-	@if [ -z "$(PDFLATEX_BIN)" ]; then \
-	    printf "  ${Y}::${NC} TeX belum terinstall. Jalankan: ${G}make install${NC}\n\n"; \
+	@if [ -z "$(TECTONIC_BIN)" ] && [ -z "$(PDFLATEX_BIN)" ]; then \
+	    printf "  ${Y}::${NC} Compiler LaTeX belum terinstall. Rekomendasi ringan: ${G}brew install tectonic${NC} atau jalankan: ${G}make install${NC}\n\n"; \
 	else \
-	    printf "  ${G}::${NC} Semua tool sudah tersedia.\n\n"; \
+	    printf "  ${G}::${NC} Compiler siap digunakan (${C}$(COMPILER)${NC}).\n\n"; \
 	fi
 
 # =============================================================================
@@ -199,8 +240,12 @@ ifeq ($(OS),macos)
 	    printf "  Install Homebrew dulu dari ${C}https://brew.sh/${NC}\n"; \
 	    exit 1; \
 	fi
+	@if [ -z "$(TECTONIC_BIN)" ] && [ -z "$(PDFLATEX_BIN)" ]; then \
+	    printf "  ${Y}::${NC} Menginstal Tectonic (rekomendasi modern & ringan ~50 MB)...\n"; \
+	    brew install tectonic || true; \
+	fi
 	@if [ -z "$(PDFLATEX_BIN)" ]; then \
-	    printf "  ${Y}::${NC} Install BasicTeX (hemat storage)...\n"; \
+	    printf "  ${Y}::${NC} Install BasicTeX (jika ingin memakai pdfLaTeX/biber)...\n"; \
 	    brew install --cask basictex; \
 	    sudo tlmgr update --self; \
 	    $(SPINNER) "Install paket tambahan" sudo tlmgr install \
@@ -239,10 +284,11 @@ ifeq ($(OS),linux)
 	fi
 endif
 ifeq ($(OS),windows)
-	@printf "  ${Y}::${NC} Di Windows, install MiKTeX atau TeX Live manual:\n"
-	@printf "    MiKTeX  : ${C}https://miktex.org/download${NC}\n"
-	@printf "    TeX Live: ${C}https://tug.org/texlive/windows.html${NC}\n"
-	@printf "  Aktifkan auto-install paket di MiKTeX Console.\n"
+	@printf "  ${Y}::${NC} Di Windows, opsi compiler yang didukung:\n"
+	@printf "    Tectonic (ringan) : winget install tectonic  atau  choco install tectonic\n"
+	@printf "    MiKTeX            : ${C}https://miktex.org/download${NC}\n"
+	@printf "    TeX Live          : ${C}https://tug.org/texlive/windows.html${NC}\n"
+	@printf "  Aktifkan auto-install paket di MiKTeX Console jika menggunakan MiKTeX.\n"
 endif
 ifeq ($(OS),unknown)
 	@printf "  ${R}FAIL${NC} OS tidak dikenali: $(UNAME_S)\n"
@@ -256,11 +302,24 @@ endif
 build: $(TARGET)
 
 $(TARGET): $(SRC) $(shell find src -name '*.tex' -type f) $(wildcard src/refs/*.bib) $(INFOFILE) Makefile
+ifeq ($(COMPILER),tectonic)
+	@if test -z "$(TECTONIC_BIN)"; then \
+	    echo "  FAIL  tectonic tidak ditemukan. Install via 'brew install tectonic' atau 'cargo install tectonic'"; \
+	    exit 1; \
+	fi
+	@echo "  :: Building $(OUT_NAME).pdf via Tectonic"
+	@mkdir -p $(BUILDDIR)
+	@tectonic -Z search-path=src/config -Z search-path=src -o $(BUILDDIR) --outfmt pdf src/main.tex
+	@cp -f $(BUILDDIR)/main.pdf $(TARGET)
+	@make -s _autoclean
+	@echo "  OK    $(TARGET)"
+	@printf "  ${G}OK${NC}    ${C}$(TARGET)${NC}\n"
+else ifeq ($(COMPILER),pdflatex)
 	@if test -z "$(PDFLATEX_BIN)"; then \
 	    echo "  FAIL  pdflatex tidak ditemukan"; \
 	    exit 1; \
 	fi
-	@echo "  :: Building $(OUT_NAME).pdf"
+	@echo "  :: Building $(OUT_NAME).pdf via pdfLaTeX"
 	@mkdir -p $(BUILDDIR)
 	@rm -f $(BUILDDIR)/tmp.aux $(BUILDDIR)/tmp.bbl $(BUILDDIR)/tmp.bcf
 	@echo "  [1/4] pdflatex"
@@ -278,6 +337,12 @@ $(TARGET): $(SRC) $(shell find src -name '*.tex' -type f) $(wildcard src/refs/*.
 	@make -s _autoclean
 	@echo "  OK    $(TARGET)"
 	@printf "  ${G}OK${NC}    ${C}$(TARGET)${NC}\n"
+else
+	@echo "  FAIL  Tidak ditemukan compiler LaTeX (tectonic atau pdflatex)."
+	@echo "        Rekomendasi ringan: pasang tectonic via 'brew install tectonic' / 'winget install tectonic'"
+	@echo "        Atau pasang TeX Live melalui: 'make install'"
+	@exit 1
+endif
 
 # Target internal: auto-clean setelah build
 _autoclean:
